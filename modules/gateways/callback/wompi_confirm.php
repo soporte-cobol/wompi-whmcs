@@ -57,6 +57,29 @@ if (!empty($transactionId)) {
             $amountInCents = (int)($data['data']['amount_in_cents'] ?? 0);
             $amount = $amountInCents / 100;
             $currency = strtoupper((string)($data['data']['currency'] ?? 'COP'));
+
+            if ($status === 'APPROVED' && $invoiceId > 0) {
+                // Dynamically load invoice functions to register payment
+                require_once __DIR__ . '/../../../includes/invoicefunctions.php';
+                try {
+                    $checkedInvoiceId = checkCbInvoiceID($invoiceId, $gatewayParams['name']);
+                    
+                    // Verify if transaction is already processed in WHMCS
+                    checkCbTransID($transactionId);
+                    
+                    // Mark invoice as paid
+                    addInvoicePayment(
+                        $checkedInvoiceId,
+                        $transactionId,
+                        $amount,
+                        0, // Gateway fee
+                        $gatewayModuleName
+                    );
+                    logTransaction($gatewayParams['name'], (string)$response, "Successful real-time landing page payment.");
+                } catch (\Throwable $ex) {
+                    // Already processed or invoice is already paid/invalid, ignore safely
+                }
+            }
         }
     } catch (\Throwable $e) {
         $status = 'PENDING';
