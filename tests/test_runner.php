@@ -1,6 +1,6 @@
 <?php
 /**
- * Standalone Test Runner for WHMCS Wompi Gateway
+ * Standalone Test Runner for WHMCS Wompi Web Checkout Gateway
  */
 
 require_once __DIR__ . '/../init.php';
@@ -88,7 +88,7 @@ function run_callback_test($payload, $gatewayVars, $failCheckInvoice = false, $d
 // Clear any previous test logs at startup
 @unlink(__DIR__ . '/test_logs.json');
 
-echo "\033[36m=== Starting WHMCS Wompi Gateway Unit Tests ===\033[0m\n\n";
+echo "\033[36m=== Starting WHMCS Wompi Web Checkout Gateway Unit Tests ===\033[0m\n\n";
 
 // ==========================================
 // SECTION 1: Config & Metadata Tests
@@ -96,7 +96,7 @@ echo "\033[36m=== Starting WHMCS Wompi Gateway Unit Tests ===\033[0m\n\n";
 echo "\033[33m--- Section 1: Config & Metadata ---\033[0m\n";
 
 $meta = wompi_MetaData();
-assert_equal('Wompi API (Onsite)', $meta['DisplayName'], "Metadata DisplayName matches");
+assert_equal('Wompi Web Checkout (Redirect)', $meta['DisplayName'], "Metadata DisplayName matches");
 assert_equal('1.1', $meta['APIVersion'], "Metadata APIVersion matches");
 
 $config = wompi_config();
@@ -105,125 +105,51 @@ assert_equal('yesno', $config['testMode']['Type'], "testMode type matches");
 
 
 // ==========================================
-// SECTION 2: Payment Capture Tests
+// SECTION 2: Web Checkout Link Generation Tests
 // ==========================================
-echo "\n\033[33m--- Section 2: Payment Capture ---\033[0m\n";
+echo "\n\033[33m--- Section 2: Link Generation ---\033[0m\n";
 
-// Capture: Missing API Keys
+// Link Gen: Missing Public Key
 $paramsMissing = array(
     'publicKeyTest' => '',
-    'privateKeyTest' => '',
     'testMode' => 'on'
 );
-$res = wompi_capture($paramsMissing);
-assert_equal('error', $res['status'], "Capture status is error on missing keys");
-assert_equal('Wompi module configuration is incomplete. Missing API keys.', $res['rawdata'], "Returns precise key error message");
+$res = wompi_link($paramsMissing);
+$expectedError = '<div class="alert alert-danger">Wompi module configuration is incomplete. Missing Public Key.</div>';
+assert_equal($expectedError, $res, "Link generation fails with HTML error message if public key is missing");
 
 // Setup base params
 $params = array(
     'testMode' => 'on',
     'publicKeyTest' => 'pub_test_123',
-    'privateKeyTest' => 'prv_test_123',
     'integritySecretTest' => 'test_integrity_123',
     'invoiceid' => 101,
     'amount' => 150.00,
     'currency' => 'COP',
-    'cardnum' => '4242 4242 4242 4242',
-    'cccvv' => '123',
-    'cardexp' => '1229',
+    'returnurl' => 'http://yourwhmcs.com/viewinvoice.php?id=101',
     'clientdetails' => array(
         'firstname' => 'John',
         'lastname' => 'Doe',
-        'email' => 'john.doe@example.com'
+        'email' => 'john.doe@example.com',
+        'phonenumber' => '3001234567'
     )
 );
 
-// Capture: Success (APPROVED)
-$GLOBALS['wompi_api_mock_handler'] = function($method, $endpoint, $payload, $bearerToken, $extraHeaders) {
-    if (strpos($endpoint, '/merchants/info') !== false) {
-        return array(
-            'data' => array(
-                'presigned_acceptance' => array(
-                    'acceptance_token' => 'mock_acceptance_token_123'
-                ),
-                'presigned_personal_data_auth' => array(
-                    'acceptance_token' => 'mock_personal_token_123'
-                )
-            )
-        );
-    }
-    if (strpos($endpoint, '/tokens/cards') !== false) {
-        return array(
-            'status' => 'CREATED',
-            'data' => array(
-                'id' => 'tok_test_card_123'
-            )
-        );
-    }
-    if (strpos($endpoint, '/transactions') !== false && $method === 'POST') {
-        return array(
-            'data' => array(
-                'id' => 'tx_test_approved_123',
-                'status' => 'APPROVED'
-            )
-        );
-    }
-    return array();
-};
-
-$res = wompi_capture($params);
-assert_equal('success', $res['status'], "Capture status is success for APPROVED transaction");
-assert_equal('tx_test_approved_123', $res['transid'], "Correct transaction ID is captured");
-$decoded = json_decode($res['rawdata'], true);
-assert_equal('APPROVED', $decoded['data']['status'] ?? '', "Returned raw data status is APPROVED");
-
-// Capture: Declined
-$GLOBALS['wompi_api_mock_handler'] = function($method, $endpoint, $payload, $bearerToken, $extraHeaders) {
-    if (strpos($endpoint, '/merchants/info') !== false) {
-        return array('data' => array('presigned_acceptance' => array('acceptance_token' => 'mock_acceptance_token_123')));
-    }
-    if (strpos($endpoint, '/tokens/cards') !== false) {
-        return array('status' => 'CREATED', 'data' => array('id' => 'tok_test_card_123'));
-    }
-    if (strpos($endpoint, '/transactions') !== false && $method === 'POST') {
-        return array('data' => array('id' => 'tx_test_declined_123', 'status' => 'DECLINED'));
-    }
-    return array();
-};
-
-$res = wompi_capture($params);
-assert_equal('declined', $res['status'], "Capture status is declined for DECLINED transaction");
-
-// Capture: Polling (PENDING -> APPROVED)
-$pollCount = 0;
-$GLOBALS['wompi_api_mock_handler'] = function($method, $endpoint, $payload, $bearerToken, $extraHeaders) use (&$pollCount) {
-    if (strpos($endpoint, '/merchants/info') !== false) {
-        return array('data' => array('presigned_acceptance' => array('acceptance_token' => 'mock_acceptance_token_123')));
-    }
-    if (strpos($endpoint, '/tokens/cards') !== false) {
-        return array('status' => 'CREATED', 'data' => array('id' => 'tok_test_card_123'));
-    }
-    if (strpos($endpoint, '/transactions') !== false && $method === 'POST') {
-        return array('data' => array('id' => 'tx_test_polling_123', 'status' => 'PENDING'));
-    }
-    if (strpos($endpoint, '/transactions/tx_test_polling_123') !== false && $method === 'GET') {
-        $pollCount++;
-        if ($pollCount === 1) {
-            return array('data' => array('status' => 'PENDING'));
-        } else {
-            return array('data' => array('status' => 'APPROVED', 'id' => 'tx_test_polling_123'));
-        }
-    }
-    return array();
-};
-
-$res = wompi_capture($params);
-assert_equal('success', $res['status'], "Capture with polling successfully resolves to success");
-assert_equal(2, $pollCount, "Polled Wompi API exactly 2 times before success");
+// Link Gen: Success Form Validation
+$res = wompi_link($params);
+assert_equal(true, strpos($res, 'action="https://checkout.wompi.co/p/"') !== false, "Form redirects to correct Wompi checkout domain");
+assert_equal(true, strpos($res, 'name="public-key" value="pub_test_123"') !== false, "Includes correct public-key input");
+assert_equal(true, strpos($res, 'name="currency" value="COP"') !== false, "Includes correct currency");
+assert_equal(true, strpos($res, 'name="amount-in-cents" value="15000"') !== false, "Correctly converts amount to cents ($150.00 = 15000 cents)");
+assert_equal(true, strpos($res, 'name="redirect-url" value="http://yourwhmcs.com/viewinvoice.php?id=101"') !== false, "Includes correct return/redirect URL");
+assert_equal(true, strpos($res, 'name="customer-data:email" value="john.doe@example.com"') !== false, "Includes prefilled email");
+assert_equal(true, strpos($res, 'name="customer-data:full-name" value="John Doe"') !== false, "Includes prefilled full name");
+assert_equal(true, strpos($res, 'name="customer-data:phone-number" value="3001234567"') !== false, "Includes prefilled phone number");
+assert_equal(true, strpos($res, 'name="signature:integrity"') !== false, "Successfully generates and includes integrity signature input");
 
 
 // ==========================================
-// SECTION 3: Webhook Callback Tests
+// SECTION 3: Webhook Callback Tests (Unchanged)
 // ==========================================
 echo "\n\033[33m--- Section 3: Webhook Callback ---\033[0m\n";
 
