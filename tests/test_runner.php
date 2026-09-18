@@ -169,7 +169,7 @@ echo "\033[36m=== Starting Isolated Sandbox WHMCS Wompi Web Checkout Gateway Uni
 echo "\033[33m--- Section 1: Config & Metadata ---\033[0m\n";
 
 $meta = wompi_MetaData();
-assert_equal('Wompi Web Checkout (Redirect)', $meta['DisplayName'], "Metadata DisplayName matches");
+assert_equal('Wompi Checkout & Modal Widget (Cobol Ingeniería SAS)', $meta['DisplayName'], "Metadata DisplayName matches");
 assert_equal('1.1', $meta['APIVersion'], "Metadata APIVersion matches");
 
 $config = wompi_config();
@@ -208,17 +208,17 @@ $params = array(
     )
 );
 
-// Link Gen: Success Form Validation
+// Link Gen: Success Widget Validation
 $res = wompi_link($params);
-assert_equal(true, strpos($res, 'action="https://checkout.wompi.co/p/"') !== false, "Form redirects to correct Wompi checkout domain");
-assert_equal(true, strpos($res, 'name="public-key" value="pub_test_123"') !== false, "Includes correct public-key input");
-assert_equal(true, strpos($res, 'name="currency" value="COP"') !== false, "Includes correct currency");
-assert_equal(true, strpos($res, 'name="amount-in-cents" value="15000"') !== false, "Correctly converts amount to cents ($150.00 = 15000 cents)");
-assert_equal(true, strpos($res, 'name="redirect-url" value="http://yourwhmcs.com/viewinvoice.php?id=101"') !== false, "Includes correct return/redirect URL");
-assert_equal(true, strpos($res, 'name="customer-data:email" value="john.doe@example.com"') !== false, "Includes prefilled email");
-assert_equal(true, strpos($res, 'name="customer-data:full-name" value="John Doe"') !== false, "Includes prefilled full name");
-assert_equal(true, strpos($res, 'name="customer-data:phone-number" value="3001234567"') !== false, "Includes prefilled phone number");
-assert_equal(true, strpos($res, 'name="signature:integrity"') !== false, "Successfully generates and includes integrity signature input");
+assert_equal(true, strpos($res, 'checkout.wompi.co/widget.js') !== false, "Includes correct Wompi Widget JS library link");
+assert_equal(true, strpos($res, 'publicKey: "pub_test_123"') !== false, "Includes correct public-key configuration");
+assert_equal(true, strpos($res, 'currency: "COP"') !== false, "Includes correct currency configuration");
+assert_equal(true, strpos($res, 'amountInCents: 15000') !== false, "Correctly converts amount to cents ($150.00 = 15000 cents)");
+assert_equal(true, strpos($res, '/modules/gateways/callback/wompi_confirm.php?invoiceid=101') !== false, "Includes correct custom redirect confirmation URL");
+assert_equal(true, strpos($res, 'email: "john.doe@example.com"') !== false, "Includes prefilled email");
+assert_equal(true, strpos($res, 'fullName: "John Doe"') !== false, "Includes prefilled full name");
+assert_equal(true, strpos($res, 'phoneNumber: "3001234567"') !== false, "Includes prefilled phone number");
+assert_equal(true, strpos($res, 'integrity: ') !== false, "Successfully generates and includes integrity signature object key");
 
 
 // ==========================================

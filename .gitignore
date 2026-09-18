@@ -8,5 +8,6 @@ callback_bootstrap.php
 Thumbs.db
 
 # Archives and build files
+whmcs.zip
 *.zip
 *.tar.gz
