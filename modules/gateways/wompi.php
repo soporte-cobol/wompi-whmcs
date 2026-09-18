@@ -161,6 +161,43 @@ function wompi_link(array $params): string {
     $fullName = trim($firstName . ' ' . $lastName);
     $phone = $params['clientdetails']['phonenumber'] ?? '';
 
+    // Sanitize phone number for Wompi (+57 prefix + digits)
+    $cleanPhone = preg_replace('/[^\d+]/', '', $phone);
+    $phonePrefix = '+57'; // Default for Colombia (Wompi country)
+    $phoneNumberClean = '';
+    
+    if (strpos($cleanPhone, '+') === 0) {
+        if (strpos($cleanPhone, '+57') === 0) {
+            $phonePrefix = '+57';
+            $phoneNumberClean = substr($cleanPhone, 3);
+        } else {
+            // Other international prefix, extract numbers only
+            $phoneNumberClean = preg_replace('/[^\d]/', '', $cleanPhone);
+        }
+    } else {
+        $digits = preg_replace('/[^\d]/', '', $cleanPhone);
+        if (strlen($digits) === 12 && strpos($digits, '57') === 0) {
+            $phonePrefix = '+57';
+            $phoneNumberClean = substr($digits, 2);
+        } else {
+            $phonePrefix = '+57';
+            $phoneNumberClean = $digits;
+        }
+    }
+    
+    if ($phonePrefix === '+57') {
+        $phoneNumberClean = substr($phoneNumberClean, -10);
+    }
+
+    $customerData = [
+        'email' => $email,
+        'fullName' => $fullName
+    ];
+    if (!empty($phoneNumberClean)) {
+        $customerData['phoneNumber'] = $phoneNumberClean;
+        $customerData['phoneNumberPrefix'] = $phonePrefix;
+    }
+
     $buttonText = $params['langpaynow'] ?? 'Pagar Ahora con Wompi';
 
     // Unique button ID to prevent collision if rendered multiple times
@@ -177,27 +214,31 @@ function wompi_link(array $params): string {
     
     <script type="text/javascript">
     (function() {
-        var checkout = new WidgetCheckout({
-            currency: ' . json_encode($currency, JSON_THROW_ON_ERROR) . ',
-            amountInCents: ' . $amountInCents . ',
-            reference: ' . json_encode($reference, JSON_THROW_ON_ERROR) . ',
-            publicKey: ' . json_encode($publicKey, JSON_THROW_ON_ERROR) . ',
-            signature: {
-                integrity: ' . json_encode($signature, JSON_THROW_ON_ERROR) . '
-            },
-            redirectUrl: ' . json_encode($customConfirmUrl, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . ',
-            customerData: {
-                email: ' . json_encode($email, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . ',
-                fullName: ' . json_encode($fullName, JSON_THROW_ON_ERROR) . ',
-                phoneNumber: ' . json_encode($phone, JSON_THROW_ON_ERROR) . '
-            }
-        });
+        var btn = document.getElementById("btn_wompi_' . $uniqId . '");
+        if (btn) {
+            btn.addEventListener("click", function() {
+                if (typeof WidgetCheckout === "undefined") {
+                    alert("La pasarela de pago Wompi aún se está cargando. Por favor, espera un segundo e intenta de nuevo.");
+                    return;
+                }
+                
+                var checkout = new WidgetCheckout({
+                    currency: ' . json_encode($currency, JSON_THROW_ON_ERROR) . ',
+                    amountInCents: ' . $amountInCents . ',
+                    reference: ' . json_encode($reference, JSON_THROW_ON_ERROR) . ',
+                    publicKey: ' . json_encode($publicKey, JSON_THROW_ON_ERROR) . ',
+                    signature: {
+                        integrity: ' . json_encode($signature, JSON_THROW_ON_ERROR) . '
+                    },
+                    redirectUrl: ' . json_encode($customConfirmUrl, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . ',
+                    customerData: ' . json_encode($customerData, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . '
+                });
 
-        document.getElementById("btn_wompi_' . $uniqId . '").addEventListener("click", function() {
-            checkout.open(function(result) {
-                // Widget will automatically redirect upon completion to redirectUrl
+                checkout.open(function(result) {
+                    // El widget redirecciona automáticamente al terminar
+                });
             });
-        });
+        }
     })();
     </script>
     ';

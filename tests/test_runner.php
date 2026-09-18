@@ -215,9 +215,9 @@ assert_equal(true, strpos($res, 'publicKey: "pub_test_123"') !== false, "Include
 assert_equal(true, strpos($res, 'currency: "COP"') !== false, "Includes correct currency configuration");
 assert_equal(true, strpos($res, 'amountInCents: 15000') !== false, "Correctly converts amount to cents ($150.00 = 15000 cents)");
 assert_equal(true, strpos($res, '/modules/gateways/callback/wompi_confirm.php?invoiceid=101') !== false, "Includes correct custom redirect confirmation URL");
-assert_equal(true, strpos($res, 'email: "john.doe@example.com"') !== false, "Includes prefilled email");
-assert_equal(true, strpos($res, 'fullName: "John Doe"') !== false, "Includes prefilled full name");
-assert_equal(true, strpos($res, 'phoneNumber: "3001234567"') !== false, "Includes prefilled phone number");
+assert_equal(true, strpos($res, '"email":"john.doe@example.com"') !== false, "Includes prefilled email");
+assert_equal(true, strpos($res, '"fullName":"John Doe"') !== false, "Includes prefilled full name");
+assert_equal(true, strpos($res, '"phoneNumber":"3001234567"') !== false, "Includes prefilled phone number");
 assert_equal(true, strpos($res, 'integrity: ') !== false, "Successfully generates and includes integrity signature object key");
 
 
