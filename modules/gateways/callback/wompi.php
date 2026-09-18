@@ -24,7 +24,7 @@ if (!$gatewayParams['type']) {
     die("Module Not Activated");
 }
 
-// Retrieve raw request payload
+// Retrieve raw request payload (uses global mock hook in test mode)
 $rawPayload = isset($GLOBALS['mock_webhook_payload']) ? $GLOBALS['mock_webhook_payload'] : file_get_contents('php://input');
 $payload = json_decode($rawPayload, true);
 

@@ -1,12 +1,91 @@
 <?php
 /**
- * Standalone Test Runner for WHMCS Wompi Web Checkout Gateway
+ * Standalone Test Runner for WHMCS Wompi Web Checkout Gateway (Fully Isolated Sandbox)
  */
 
-require_once __DIR__ . '/../init.php';
-require_once __DIR__ . '/../includes/gatewayfunctions.php';
-require_once __DIR__ . '/../includes/invoicefunctions.php';
-require_once __DIR__ . '/../modules/gateways/wompi.php';
+$sandboxDir = __DIR__ . '/sandbox';
+
+// Helper function to recursively delete directory
+function rrmdir($dir) {
+    if (is_dir($dir)) {
+        $objects = scandir($dir);
+        foreach ($objects as $object) {
+            if ($object != "." && $object != "..") {
+                if (is_dir($dir . "/" . $object) && !is_link($dir . "/" . $object)) {
+                    rrmdir($dir . "/" . $object);
+                } else {
+                    unlink($dir . "/" . $object);
+                }
+            }
+        }
+        rmdir($dir);
+    }
+}
+
+// 1. Setup Isolated Sandbox Environment
+rrmdir($sandboxDir);
+mkdir($sandboxDir, 0755, true);
+mkdir($sandboxDir . '/includes', 0755, true);
+mkdir($sandboxDir . '/modules/gateways/callback', 0755, true);
+
+// Create Mock init.php
+file_put_contents($sandboxDir . '/init.php', '<?php define("WHMCS", true);');
+
+// Create Mock includes/gatewayfunctions.php
+$gatewayfunctionsCode = '<?php
+if (!defined("WHMCS")) die();
+function getGatewayVariables($moduleName) {
+    return $GLOBALS["mock_gateway_variables"][$moduleName] ?? array(
+        "type" => "cc",
+        "name" => "Wompi Web Checkout (Redirect)",
+        "eventsSecretTest" => "test_event_secret_123456789",
+        "eventsSecretLive" => "live_event_secret_123456789"
+    );
+}
+function logTransaction($gatewayName, $data, $message) {
+    $GLOBALS["mock_logged_transactions"][] = array("gateway" => $gatewayName, "data" => $data, "message" => $message);
+    $logFile = ' . var_export($sandboxDir . '/test_logs.json', true) . ';
+    $logs = array();
+    if (file_exists($logFile)) $logs = json_decode(file_get_contents($logFile), true) ?: array();
+    $logs["logged_transactions"][] = array("gateway" => $gatewayName, "data" => $data, "message" => $message);
+    file_put_contents($logFile, json_encode($logs, JSON_PRETTY_PRINT));
+}
+function checkCbInvoiceID($invoiceId, $gatewayName) {
+    if (isset($GLOBALS["mock_fail_check_invoice"]) && $GLOBALS["mock_fail_check_invoice"] === true) {
+        throw new \Exception("Invoice check failed mock error");
+    }
+    return $invoiceId;
+}
+function checkCbTransID($transactionId) {
+    if (isset($GLOBALS["mock_duplicate_transaction"]) && $GLOBALS["mock_duplicate_transaction"] === true) {
+        throw new \Exception("Duplicate transaction check failed");
+    }
+    return true;
+}';
+file_put_contents($sandboxDir . '/includes/gatewayfunctions.php', $gatewayfunctionsCode);
+
+// Create Mock includes/invoicefunctions.php
+$invoicefunctionsCode = '<?php
+if (!defined("WHMCS")) die();
+function addInvoicePayment($invoiceId, $transId, $amount, $fee, $gateway) {
+    $GLOBALS["mock_added_payments"][] = array("invoiceid" => $invoiceId, "transid" => $transId, "amount" => $amount, "fee" => $fee, "gateway" => $gateway);
+    $logFile = ' . var_export($sandboxDir . '/test_logs.json', true) . ';
+    $logs = array();
+    if (file_exists($logFile)) $logs = json_decode(file_get_contents($logFile), true) ?: array();
+    $logs["added_payments"][] = array("invoiceid" => $invoiceId, "transid" => $transId, "amount" => $amount, "fee" => $fee, "gateway" => $gateway);
+    file_put_contents($logFile, json_encode($logs, JSON_PRETTY_PRINT));
+}';
+file_put_contents($sandboxDir . '/includes/invoicefunctions.php', $invoicefunctionsCode);
+
+// Copy actual module files into sandbox to test them
+copy(__DIR__ . '/../modules/gateways/wompi.php', $sandboxDir . '/modules/gateways/wompi.php');
+copy(__DIR__ . '/../modules/gateways/callback/wompi.php', $sandboxDir . '/modules/gateways/callback/wompi.php');
+
+// Load sandbox files for in-process testing
+require_once $sandboxDir . '/init.php';
+require_once $sandboxDir . '/includes/gatewayfunctions.php';
+require_once $sandboxDir . '/includes/invoicefunctions.php';
+require_once $sandboxDir . '/modules/gateways/wompi.php';
 
 $testsPassed = 0;
 $testsFailed = 0;
@@ -24,15 +103,14 @@ function assert_equal($expected, $actual, $message = "") {
     }
 }
 
-// Helper to run callback subprocess and return execution status
+// Helper to run sandbox callback subprocess
 function run_callback_test($payload, $gatewayVars, $failCheckInvoice = false, $duplicateTx = false) {
-    // Delete old logs first
-    $logFile = __DIR__ . '/test_logs.json';
+    global $sandboxDir;
+    $logFile = $sandboxDir . '/test_logs.json';
     if (file_exists($logFile)) {
         @unlink($logFile);
     }
 
-    // Bootstrap configuration with a shutdown function to capture the final http_response_code
     $bootstrapCode = '<?php
     $GLOBALS["mock_webhook_payload"] = ' . var_export(json_encode($payload), true) . ';
     $GLOBALS["mock_gateway_variables"] = array("wompi" => ' . var_export($gatewayVars, true) . ');
@@ -50,15 +128,14 @@ function run_callback_test($payload, $gatewayVars, $failCheckInvoice = false, $d
         file_put_contents($logFile, json_encode($logs, JSON_PRETTY_PRINT));
     });
     ';
-    file_put_contents(__DIR__ . '/callback_bootstrap.php', $bootstrapCode);
+    file_put_contents($sandboxDir . '/callback_bootstrap.php', $bootstrapCode);
 
-    // Command to execute
-    $cmd = 'php -d auto_prepend_file=' . escapeshellarg(__DIR__ . '/callback_bootstrap.php') . ' ' . escapeshellarg(__DIR__ . '/../modules/gateways/callback/wompi.php');
+    $cmd = 'php -d auto_prepend_file=' . escapeshellarg($sandboxDir . '/callback_bootstrap.php') . ' ' . escapeshellarg($sandboxDir . '/modules/gateways/callback/wompi.php');
     
     $descriptorspec = array(
-        0 => array("pipe", "r"), // stdin
-        1 => array("pipe", "w"), // stdout
-        2 => array("pipe", "w")  // stderr
+        0 => array("pipe", "r"),
+        1 => array("pipe", "w"),
+        2 => array("pipe", "w")
     );
     
     $process = proc_open($cmd, $descriptorspec, $pipes);
@@ -69,9 +146,8 @@ function run_callback_test($payload, $gatewayVars, $failCheckInvoice = false, $d
     fclose($pipes[2]);
     $exitCode = proc_close($process);
 
-    @unlink(__DIR__ . '/callback_bootstrap.php');
+    @unlink($sandboxDir . '/callback_bootstrap.php');
 
-    // Retrieve written logs
     $logs = array();
     if (file_exists($logFile)) {
         $logs = json_decode(file_get_contents($logFile), true) ?: array();
@@ -85,10 +161,7 @@ function run_callback_test($payload, $gatewayVars, $failCheckInvoice = false, $d
     );
 }
 
-// Clear any previous test logs at startup
-@unlink(__DIR__ . '/test_logs.json');
-
-echo "\033[36m=== Starting WHMCS Wompi Web Checkout Gateway Unit Tests ===\033[0m\n\n";
+echo "\033[36m=== Starting Isolated Sandbox WHMCS Wompi Web Checkout Gateway Unit Tests ===\033[0m\n\n";
 
 // ==========================================
 // SECTION 1: Config & Metadata Tests
@@ -149,13 +222,13 @@ assert_equal(true, strpos($res, 'name="signature:integrity"') !== false, "Succes
 
 
 // ==========================================
-// SECTION 3: Webhook Callback Tests (Unchanged)
+// SECTION 3: Webhook Callback Tests
 // ==========================================
 echo "\n\033[33m--- Section 3: Webhook Callback ---\033[0m\n";
 
 $gatewayVars = array(
     'type' => 'cc',
-    'name' => 'Wompi API (Onsite)',
+    'name' => 'Wompi Web Checkout (Redirect)',
     'eventsSecretTest' => 'test_event_secret_123456789'
 );
 
@@ -167,7 +240,7 @@ $webhookPayload = array(
     'data' => array(
         'transaction' => array(
             'id' => 'tx_webhook_approved_123',
-            'amount_in_cents' => 15000, // $150.00
+            'amount_in_cents' => 15000,
             'reference' => '101-999-999',
             'status' => 'APPROVED',
             'currency' => 'COP'
@@ -219,18 +292,18 @@ assert_equal("Invoice ID check failed", trim($resCallbackInvoiceFail['stdout']),
 
 
 // ==========================================
-// FINAL REPORT
+// FINAL REPORT & CLEANUP
 // ==========================================
 echo "\n\033[36m=== Final Test Summary ===\033[0m\n";
 echo "Total Passed:  \033[32m{$testsPassed}\033[0m\n";
 echo "Total Failed:  \033[31m{$testsFailed}\033[0m\n";
 
-// Clean up temporary logs from run
-@unlink(__DIR__ . '/test_logs.json');
+// Completely cleanup isolated sandbox directory!
+rrmdir($sandboxDir);
 
 if ($testsFailed > 0) {
     exit(1);
 } else {
-    echo "\n\033[32mAll Wompi Payment Gateway tests have successfully passed!\033[0m\n";
+    echo "\n\033[32mAll Wompi Payment Gateway tests have successfully passed (Environment 100% clean)!\033[0m\n";
     exit(0);
 }

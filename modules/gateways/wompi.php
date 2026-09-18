@@ -139,7 +139,7 @@ function wompi_link($params) {
         $signature = hash('sha256', $sigString);
     }
 
-    // Wompi Web Checkout URL (Colombia uses https://checkout.wompi.co/p/)
+    // Wompi Web Checkout URL
     $checkoutUrl = 'https://checkout.wompi.co/p/';
 
     // 4. Form inputs
