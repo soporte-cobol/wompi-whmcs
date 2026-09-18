@@ -235,7 +235,12 @@ function wompi_link(array $params): string {
                 });
 
                 checkout.open(function(result) {
-                    // El widget redirecciona automáticamente al terminar
+                    var transaction = result ? result.transaction : null;
+                    if (transaction && transaction.id) {
+                        window.location.href = ' . json_encode($customConfirmUrl, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . ' + "&id=" + encodeURIComponent(transaction.id);
+                    } else {
+                        window.location.href = ' . json_encode($customConfirmUrl, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . ';
+                    }
                 });
             });
         }
