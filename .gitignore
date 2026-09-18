@@ -1,0 +1,12 @@
+# Temp test files (incase of manual interrupts or local runs)
+tests/sandbox/
+tests/test_logs.json
+callback_bootstrap.php
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Archives and build files
+*.zip
+*.tar.gz
